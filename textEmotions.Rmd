@@ -1,3 +1,19 @@
+---
+title: smsRnalysis
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    keep_md: true
+---
+
+# Quick Summary
+
+Analysis of sms' written in R, using the datasets outputted by:
+https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
+
+```{r, message=F, warning=F}
 library("XML")
 library("ggplot2")
 library("forcats")
@@ -13,21 +29,55 @@ sms <- sapply(sms_ns, xmlAttrs)
 sms_t <- as.data.frame(t(sms))
 sms_t$body <- as.character(sms_t$body)
 sms_t$date <- as.POSIXct(as.numeric(as.character(sms_t$date))/1000, origin="1970-01-01")
-
+sms_t$contact_anon_full <- gsub("(.*) ([a-zA-Z]).*", "\\1 \\2***", as.character(sms_t$contact_name))
+sms_t$contact_anon <- forcats::fct_lump(sms_t$contact_anon_full, n=15) %>% forcats::fct_infreq()
 sms_t$contact_name <- forcats::fct_lump(sms_t$contact_name, n=15) %>% forcats::fct_infreq()
-ggplot(sms_t, aes(x=contact_name)) + geom_bar() + theme(axis.text.x = element_text(angle=60, hjust=1)) + ggtitle("Most frequent Contacts")
 
-robin_msg <- sms_t %>% filter(contact_name=="Robin")
-
-
-ggplot(robin_msg, aes(x=type)) + geom_bar() + scale_x_discrete(labels=c("Recieved", "Sent")) + ggtitle("Robin Messages by Sender")
-
-ggplot(robin_msg, aes(x=type, y=nchar(body))) + geom_col() + 
+ggplot(sms_t, aes(x=type)) + geom_bar() +
   scale_x_discrete(labels=c("Recieved", "Sent")) + 
-  ggtitle("Robin Characters sent by Sender") +ylab("characters sent")
+  ggtitle("Messages Recieved and Sent")
+
+ggplot(sms_t, aes(x=contact_anon)) + 
+  geom_bar() + 
+  theme(axis.text.x = element_text(angle=60, hjust=1)) + 
+  ggtitle("Most frequent Contacts")
 
 
-ggplot(robin_msg, aes(x=type, y=nchar(body))) + geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), scale="count") + scale_x_discrete(labels=c("Recieved", "Sent")) + ggtitle("Robin Message Length by Sender") + ylab("Message Length")
+dateBreakFormat <- "%Y-%m-%d"
+ggplot(
+  sms_t %>% group_by(
+    day=as.POSIXct(strptime(strftime(date, format=dateBreakFormat), format=dateBreakFormat)),
+    type=type) %>% summarise(count=n())
+  , aes(x=day, y=count, color=type)) +
+  geom_smooth(se = T) + 
+  geom_jitter(size=0.2, width=0) +
+  ggtitle("Texts by day") + 
+  scale_color_discrete(labels=c("Recieved", "Sent")) #+ scale_x_datetime()
+
+```
+
+# Focus on most popular contact
+```{r, message=F, warning=F}
+mostPopName <- levels(sms_t$contact_name)[1]
+robin_msg <- sms_t %>% filter(contact_name==mostPopName)
+
+
+ggplot(robin_msg, aes(x=type)) + geom_bar() +
+  scale_x_discrete(labels=c("Recieved", "Sent")) + 
+  ggtitle(paste0(mostPopName, " Messages by Sender"))
+
+ggplot(robin_msg, aes(x=type, y=nchar(body))) + geom_col() +
+  scale_x_discrete(labels=c("Recieved", "Sent")) + 
+  ggtitle(paste0(mostPopName, " Characters sent by Sender")) +
+  ylab("characters sent")
+
+
+ggplot(robin_msg, aes(x=type, y=nchar(body))) + 
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), scale="count") + 
+  scale_x_discrete(labels=c("Recieved", "Sent")) +
+  ggtitle(paste0(mostPopName, " Message Length by Sender")) +
+  ylab("Message Length")
+
 dateBreakFormat <- "%Y-%m-%d"
 ggplot(
   robin_msg %>% group_by(
@@ -36,7 +86,7 @@ ggplot(
   , aes(x=day, y=count, color=type)) +
   geom_smooth(se = T) + 
   geom_jitter(size=0.2, width=0) +
-  ggtitle("Robin texts by day") + 
+  ggtitle(paste0(mostPopName, " texts by day")) + 
   scale_color_discrete(labels=c("Recieved", "Sent")) #+ scale_x_datetime()
 
 timeBreakFormat <- "%I%M"
@@ -55,7 +105,8 @@ ggplot(
   , aes(x=day, y=count, color=type)) +
   geom_smooth(se = T) + 
   geom_jitter(size=0.2, width=0, height=0.4) +
-  ggtitle("Robin texts by Time") + ylab("Texts per Minute") +
+  ggtitle(paste0(mostPopName, " texts by Time")) + 
+  ylab("Texts per Minute") +
   scale_color_discrete(labels=c("Recieved", "Sent")) + 
   facet_wrap(~half, labeller = as_labeller(mornMap)) + 
   scale_x_datetime(date_labels="%I", date_breaks="1 hour") + coord_polar()
@@ -71,12 +122,16 @@ ggplot(
   , aes(x=day, y=count, color=type)) +
   geom_smooth(se = T) + 
   geom_jitter(size=0.2, width=0, height=0.3) +
-  ggtitle("Robin texts by Time") + ylab("Texts per Minute") +
+  ggtitle(paste0(mostPopName, " texts by Time")) + 
+  ylab("Texts per Minute") +
   scale_color_discrete(labels=c("Recieved", "Sent")) + 
   #facet_wrap(~half, labeller = as_labeller(mornMap)) + 
   #scale_x_datetime(date_labels="%H:%M", date_breaks="1 hour") + coord_polar()
   scale_x_datetime("Time of Day", date_labels="%H:%M")
+```
 
+# Emotion and content of most popular contact
+```{r, message=F, warning=F, cache=T}
 
 library(sentiment)
 library(wordcloud)
@@ -106,39 +161,51 @@ sent_df = within(sent_df,
 ggplot(sent_df, aes(x=emotion, y=..count.., fill=type, group=type)) +
   geom_bar(position="dodge") + scale_fill_discrete(labels=c("Recieved", "Sent")) +
  # scale_fill_brewer(palette="Dark2") +
-  labs(x="emotion categories", y="number of texts") + ggtitle("Robin Emotion")
+  labs(x="emotion categories", y="number of texts") +
+  ggtitle(paste0(mostPopName, " Emotion"))
+
+count_sent_df <- sent_df %>% group_by(type, emotion) %>% summarise(n = n()) %>% select(type, emotion, n)
+count_sent_df$norm <- ave(count_sent_df$n, list(count_sent_df$type), FUN=function(L) L/sum(L))
+#count_sent_df %>% group_by(type) %>% summarise(sum(norm))
+
+ggplot(count_sent_df, aes(x=emotion, y=norm, fill=type)) +
+  geom_col(position="dodge") + 
+  ggtitle(paste0(mostPopName, " Emotion Normalised Percentage")) +
+  scale_fill_discrete(labels=c("Recieved", "Sent"))
+
+ggplot(count_sent_df, aes(x=emotion, y=norm, fill=type)) +
+  geom_col(position="fill") + 
+  ggtitle(paste0(mostPopName, " Emotion Normalised Ratio")) +
+  scale_fill_discrete(labels=c("Recieved", "Sent"))
 
 
 ggplot(sent_df, aes(x=polarity, y=..count.., fill=type, group=type)) +
   geom_bar(position="dodge") + scale_fill_discrete(labels=c("Recieved", "Sent")) +
   # scale_fill_brewer(palette="Dark2") +
-  labs(x="positivity categories", y="number of texts") + ggtitle("Robin Positivity")
+  labs(x="positivity categories", y="number of texts") +
+  ggtitle(paste0(mostPopName, " Positivity"))
 
 
 ggplot(sent_df, aes(x=type, y=..count.., fill=emotion, group=emotion)) +
   geom_bar(position="fill") + scale_x_discrete(labels=c("Recieved", "Sent")) +
   # scale_fill_brewer(palette="Dark2") +
-  labs(x="positivity categories", y="number of texts") + ggtitle("Robin Emotion")
+  labs(x="positivity categories", y="number of texts") +
+  ggtitle(paste0(mostPopName, " Emotion"))
 
 
 ggplot(sent_df, aes(x=type, y=..count.., fill=polarity, group=polarity)) +
   geom_bar(position="fill") + scale_x_discrete(labels=c("Recieved", "Sent")) +
   # scale_fill_brewer(palette="Dark2") +
-  labs(x="positivity categories", y="number of texts") + ggtitle("Robin Positivity")
+  labs(x="positivity categories", y="number of texts") +
+  ggtitle(paste0(mostPopName, " Positivity"))
 
 
-count_sent_df <- sent_df %>% group_by(type, emotion) %>% summarise(n = n()) %>% select(type, emotion, n)
-
-df <- select(count_sent_df, type, emotion, n)
-df$norm <- ave(df$n, list(df$type), FUN=function(L) L/sum(L))
-df %>% group_by(type) %>% summarise(sum(norm))
-
-ggplot(df, aes(x=emotion, y=norm, fill=type)) + geom_col(position="fill")
 
 ggplot(sent_df, aes(x=emotion, y=..count.., fill=type, group=type)) +
   geom_bar(position="dodge") + scale_fill_discrete(labels=c("Recieved", "Sent")) +
   # scale_fill_brewer(palette="Dark2") +
-  labs(x="emotion categories", y="number of texts") + ggtitle("Robin Emotion")
+  labs(x="emotion categories", y="number of texts") +
+  ggtitle(paste0(mostPopName, " Emotion"))
 
 
 some_txt <- robin_msg$body
@@ -167,3 +234,4 @@ comparison.cloud(tdm, colors = brewer.pal(nemo, "Dark2"),
 #install_url("http://cran.r-project.org/src/contrib/Archive/sentiment/sentiment_0.2.tar.gz")
 #install_url("https://cran.r-project.org/src/contrib/Archive/slam/slam_0.1-37.tar.gz")
 #install_url("http://cran.wustl.edu/src/contrib/Archive/Rstem/Rstem_0.4-1.tar.gz")
+```
